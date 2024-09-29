@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -22,27 +23,29 @@ static int handle_request(int connfd) {
 
   uint32_t len = 0;
   memcpy(&len, rbuf, HEADER_MSG_SIZE);  // assume little endian
+  printf("Sent message size: [%d]\n", len);
   if (len > MAX_MSG_SIZE) {
     msg("too long");
     return -1;
   }
 
-  err = read_n(connfd, &rbuf[4], len);
+  err = read_n(connfd, &rbuf[HEADER_MSG_SIZE], len);
   if (err) {
     msg("read message body error");
     return err;
   }
 
-  rbuf[4 + len] = '\0';
-  printf("client says: [%d][%s]\n", len, &rbuf[4]);
+  rbuf[HEADER_MSG_SIZE + len] = '\0';
+  printf("client says: [%d][%s]\n", len, &rbuf[HEADER_MSG_SIZE]);
 
   const char reply[] = "world";
-  char wbuf[4 + sizeof(reply)];
-  uint32_t answer_len = (uint32_t)strlen(reply);
-  memcpy(wbuf, &answer_len, 4);
-  memcpy(&wbuf[4], reply, answer_len);
+  char wbuf[HEADER_MSG_SIZE + sizeof(reply)];
+  len = (uint32_t)strlen(reply);
+  memcpy(wbuf, &len, HEADER_MSG_SIZE);
+  memcpy(&wbuf[4], reply, len);
 
-  return write_n(connfd, wbuf, MAX_MSG_SIZE + answer_len);
+  printf("Will send an answer of: %s\n", wbuf);
+  return write_n(connfd, wbuf, MAX_MSG_SIZE + len);
 }
 
 int main (int argc, char *argv[]) {
