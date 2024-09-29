@@ -20,11 +20,15 @@ SERVER_OBJS = $(patsubst $(SRCDIR_SERVER)/%.cpp, $(OBJDIR)/server_%.o, $(SERVER_
 CLIENT_OBJS = $(patsubst $(SRCDIR_CLIENT)/%.cpp, $(OBJDIR)/client_%.o, $(CLIENT_SRC))
 SHARED_OBJS = $(patsubst $(SRCDIR_SHARED)/%.cpp, $(OBJDIR)/shared_%.o, $(SHARED_SRC))
 
-all: $(BINDIR)/$(SERVER) $(BINDIR)/$(CLIENT)
+all: server client
+
+server: $(BINDIR)/$(SERVER)
 
 $(BINDIR)/$(SERVER): $(SERVER_OBJS) $(BINDIR)/$(LIBRARY)
 	@mkdir -p $(BINDIR)
 	$(CC) $(SERVER_OBJS) -L$(BINDIR) -lshared -o $@
+
+client: $(BINDIR)/$(CLIENT)
 
 $(BINDIR)/$(CLIENT): $(CLIENT_OBJS) $(BINDIR)/$(LIBRARY)
 	@mkdir -p $(BINDIR)
