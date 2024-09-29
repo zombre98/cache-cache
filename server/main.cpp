@@ -8,7 +8,7 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
 #include <assert.h>
-#include "logging.hpp"
+#include "../lib/logging.hpp"
 
 const size_t MAX_MSG_SIZE = 4096;
 const size_t HEADER_MSG_SIZE = 4; // SIZE of an integer that store message size 

@@ -1,39 +1,55 @@
-CC=gcc
-CFLAGS := -Wall -Wextra -pedantic
-BIN_DIR := bin
-BUILD_DIR := build
-SERVER_DIR := server
-CLIENT_DIR := client
-LIB_DIR := lib
+CC = gcc
+CFLAGS = -Wall -fPIC
+LDFLAGS = -shared
 
+SERVER = server
+CLIENT = client
+LIBRARY = libshared.so
 
-CLIENT_OBJS := $(patsubst %.cpp,%.o, $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(CLIENT_DIR)/**/*.hpp))
-SERVER_OBJS := $(patsubst %.cpp,%.o, $(wildcard $(SERVER_DIR)/*.cpp) $(wildcard $(SERVER_DIR)/**/*.hpp))
+SRCDIR_SERVER = server
+SRCDIR_CLIENT = client
+SRCDIR_SHARED = lib
+OBJDIR = obj
+BINDIR = bin
 
-default: all
+SERVER_SRC = $(wildcard $(SRCDIR_SERVER)/*.cpp)
+CLIENT_SRC = $(wildcard $(SRCDIR_CLIENT)/*.cpp)
+SHARED_SRC = $(wildcard $(SRCDIR_SHARED)/*.cpp)
 
-all: server client
+SERVER_OBJS = $(patsubst $(SRCDIR_SERVER)/%.cpp, $(OBJDIR)/server_%.o, $(SERVER_SRC))
+CLIENT_OBJS = $(patsubst $(SRCDIR_CLIENT)/%.cpp, $(OBJDIR)/client_%.o, $(CLIENT_SRC))
+SHARED_OBJS = $(patsubst $(SRCDIR_SHARED)/%.cpp, $(OBJDIR)/shared_%.o, $(SHARED_SRC))
 
-server: dir $(LIB_OBJS) $(SERVER_OBJS)
-	$(CC) $(CFLAGS) -o $(BIN_DIR)/server $(patsubst %, build/%, $(SERVER_OBJS))
+all: $(BINDIR)/$(SERVER) $(BINDIR)/$(CLIENT)
 
-client: dir $(LIB_OBJS) $(CLIENT_OBJS)
-	$(CC) $(CFLAGS) -o $(BIN_DIR)/client $(patsubst %, build/%, $(CLIENT_OBJS))
+$(BINDIR)/$(SERVER): $(SERVER_OBJS) $(BINDIR)/$(LIBRARY)
+	@mkdir -p $(BINDIR)
+	$(CC) $(SERVER_OBJS) -L$(BINDIR) -lshared -o $@
 
-$(CLIENT_OBJS): dir
-	@mkdir -p $(BUILD_DIR)/$(@D)
-	@$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ -c $*.cpp
+$(BINDIR)/$(CLIENT): $(CLIENT_OBJS) $(BINDIR)/$(LIBRARY)
+	@mkdir -p $(BINDIR)
+	$(CC) $(CLIENT_OBJS) -L$(BINDIR) -lshared -o $@
 
-$(SERVER_OBJS): dir
-	@mkdir -p $(BUILD_DIR)/$(@D)
-	@$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ -c $*.cpp
+$(BINDIR)/$(LIBRARY): $(SHARED_OBJS)
+	@mkdir -p $(BINDIR)
+	$(CC) $(LDFLAGS) -o $(BINDIR)/$(LIBRARY) $(SHARED_OBJS)
+
+$(OBJDIR)/server_%.o: $(SRCDIR_SERVER)/%.cpp $(SRCDIR_SHARED)/logging.hpp
+	@mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)/client_%.o: $(SRCDIR_CLIENT)/%.cpp $(SRCDIR_SHARED)/logging.hpp
+	@mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)/shared_%.o: $(SRCDIR_SHARED)/%.cpp $(SRCDIR_SHARED)/logging.hpp
+	@mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	@rm -rf $(BUILD_DIR) $(BIN_DIR)
+	rm -rf $(OBJDIR) $(BINDIR)
 
-dir:
-	@mkdir -p $(BUILD_DIR) $(BIN_DIR)
+distclean: clean
 
-re: fclean all
+.PHONY: all clean distclean
 
-.PHONY: all client server fclean re lib
