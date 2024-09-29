@@ -32,7 +32,6 @@ static int32_t query(int fd, const char *text) {
   }
 
   memcpy(&len, rbuf, HEADER_MSG_SIZE);  // assume little endian
-  printf("Server answer_len: %d\n", len);
   if (len > MAX_MSG_SIZE) {
     msg("too long");
     return -1;

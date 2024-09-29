@@ -23,7 +23,6 @@ static int handle_request(int connfd) {
 
   uint32_t len = 0;
   memcpy(&len, rbuf, HEADER_MSG_SIZE);  // assume little endian
-  printf("Sent message size: [%d]\n", len);
   if (len > MAX_MSG_SIZE) {
     msg("too long");
     return -1;
@@ -44,8 +43,7 @@ static int handle_request(int connfd) {
   memcpy(wbuf, &len, HEADER_MSG_SIZE);
   memcpy(&wbuf[4], reply, len);
 
-  printf("Will send an answer of: %s\n", wbuf);
-  return write_n(connfd, wbuf, MAX_MSG_SIZE + len);
+  return write_n(connfd, wbuf, HEADER_MSG_SIZE + len);
 }
 
 int main (int argc, char *argv[]) {
