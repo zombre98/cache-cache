@@ -1,27 +1,44 @@
-#include <string.h>
-#include <cstdio>
+#include <cstddef>
 #include <unistd.h>
-#include <stdio.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/ip.h>
+#include <assert.h>
 #include "logging.hpp"
 
-static void handle_connection(int connfd) {
-  char rbuf[64] = {};
-  ssize_t n = read(connfd, rbuf, sizeof(rbuf) - 1);
-  if (n < 0) {
-    msg("read() error");
-    return;
-  }
-  printf("client says: %s\n", rbuf);
+const size_t MAX_MSG_SIZE = 4096;
+const size_t HEADER_MSG_SIZE = 4; // SIZE of an integer that store message size 
 
-  const char *response = "world";
-  write(connfd, response, strlen(response));
+static int32_t read_n(int fd, char *buf, size_t n) {
+    while (n > 0) {
+        ssize_t rv = read(fd, buf, n);
+        if (rv <= 0) {
+            return -1; 
+        }
+        assert((size_t)rv <= n);
+        n -= (size_t)rv;
+        buf += rv;
+    }
+    return 0;
 }
 
+static int32_t write_n(int fd, const char *buf, size_t n) {
+    while (n > 0) {
+        ssize_t rv = write(fd, buf, n);
+        if (rv <= 0) {
+            return -1;  // error
+        }
+        assert((size_t)rv <= n);
+        n -= (size_t)rv;
+        buf += rv;
+    }
+    return 0;
+}
 
+static int handle_request(int connfd) {
+  return 1;
+}
 
 int main (int argc, char *argv[]) {
   int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -56,7 +73,12 @@ int main (int argc, char *argv[]) {
       continue;
     }
 
-    handle_connection(connfd);
+    while (true) {
+      int error = handle_request(connfd);
+      if (error) {
+        break;
+      }
+    }
     close(connfd);
   }
 
