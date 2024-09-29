@@ -1,20 +1,12 @@
 #include <string.h>
 #include <cstdio>
-#include <errno.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/ip.h>
-
-static void die(const char *msg) {
-  fprintf(stderr, "[%d] %s\n", errno, msg);
-}
-
-static void msg(const char *msg) {
-    fprintf(stderr, "%s\n", msg);
-}
+#include "../lib/logging.hpp"
 
 static void handle_connection(int connfd) {
   char rbuf[64] = {};
