@@ -6,7 +6,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/ip.h>
-#include "../lib/logging.hpp"
+#include "logging.hpp"
 
 static void handle_connection(int connfd) {
   char rbuf[64] = {};

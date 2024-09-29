@@ -7,18 +7,17 @@ CLIENT_DIR := client
 LIB_DIR := lib
 
 
-CLIENT_OBJS := $(patsubst %.cpp,%.o, $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(LIB_DIR)/**/*.cpp))
-SERVER_OBJS := $(patsubst %.cpp,%.o, $(wildcard $(SERVER_DIR)/*.cpp) $(wildcard $(LIB_DIR)/**/*.cpp))
-
+CLIENT_OBJS := $(patsubst %.cpp,%.o, $(wildcard $(CLIENT_DIR)/*.cpp) $(wildcard $(CLIENT_DIR)/**/*.hpp))
+SERVER_OBJS := $(patsubst %.cpp,%.o, $(wildcard $(SERVER_DIR)/*.cpp) $(wildcard $(SERVER_DIR)/**/*.hpp))
 
 default: all
 
 all: server client
 
-server: dir $(SERVER_OBJS)
+server: dir $(LIB_OBJS) $(SERVER_OBJS)
 	$(CC) $(CFLAGS) -o $(BIN_DIR)/server $(patsubst %, build/%, $(SERVER_OBJS))
 
-client: dir $(CLIENT_OBJS)
+client: dir $(LIB_OBJS) $(CLIENT_OBJS)
 	$(CC) $(CFLAGS) -o $(BIN_DIR)/client $(patsubst %, build/%, $(CLIENT_OBJS))
 
 $(CLIENT_OBJS): dir
@@ -28,9 +27,6 @@ $(CLIENT_OBJS): dir
 $(SERVER_OBJS): dir
 	@mkdir -p $(BUILD_DIR)/$(@D)
 	@$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ -c $*.cpp
-
-lib:
-	$(CC) -c $(LIB_DIR)/*.hpp
 
 clean:
 	@rm -rf $(BUILD_DIR) $(BIN_DIR)
