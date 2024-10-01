@@ -1,4 +1,8 @@
 #include <cstddef>
+#include <vector>
+#include <fcntl.h>
+#include <poll.h>
+#include <errno.h>
 #include <cstdint>
 #include <cstdio>
 #include <string.h>
@@ -12,6 +16,27 @@
 
 const size_t MAX_MSG_SIZE = 4096;
 const size_t HEADER_MSG_SIZE = 4; // SIZE of an integer that store message size 
+
+enum {
+    STATE_REQ = 0,
+    STATE_RES = 1,
+    STATE_END = 2,  // mark the connection for deletion
+};
+
+struct Conn {
+    int fd = -1;
+    uint32_t state = 0;     // either STATE_REQ or STATE_RES
+    
+    // buffer for reading
+    size_t rbuf_size = 0;
+    uint8_t rbuf[HEADER_MSG_SIZE + MAX_MSG_SIZE];
+    
+    // buffer for writing
+    size_t wbuf_size = 0;
+    size_t wbuf_sent = 0;
+    uint8_t wbuf[HEADER_MSG_SIZE + MAX_MSG_SIZE];
+};
+
 
 static int handle_request(int connfd) {
   char rbuf[HEADER_MSG_SIZE + MAX_MSG_SIZE + 1];
@@ -46,7 +71,25 @@ static int handle_request(int connfd) {
   return write_n(connfd, wbuf, HEADER_MSG_SIZE + len);
 }
 
-int main (int argc, char *argv[]) {
+// Set the file descriptor to non blocking mode
+static void non_blocking_fd(int fd) {
+    errno = 0;
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (errno) {
+        die("fcntl error");
+        return;
+    }
+
+    flags |= O_NONBLOCK;
+
+    errno = 0;
+    (void)fcntl(fd, F_SETFL, flags);
+    if (errno) {
+        die("fcntl error");
+    }
+}
+
+int main(int argc, char *argv[]) {
   int fd = socket(AF_INET, SOCK_STREAM, 0);
   if (fd < 0) {
     die("socket()");
@@ -71,22 +114,32 @@ int main (int argc, char *argv[]) {
     die("listen()");
   }
 
+  // Is it better to use a map or unordered_map ?
+  std::vector<Conn *> fd2conn;
+
+  non_blocking_fd(fd);
+
+  std::vector<struct pollfd> poll_args;
   while(true) {
-    struct sockaddr_in client_address = {};
-    socklen_t address_length = sizeof(client_address);
-    int connfd = accept(fd, (struct sockaddr *)&client_address, &address_length);
-    if (connfd < 0) {
-      continue;
-    }
-
-    while (true) {
-      int error = handle_request(connfd);
-      if (error) {
-        break;
+    poll_args.clear();
+    
+    struct pollfd pfd = {fd, POLLIN, 0};
+    poll_args.push_back(pfd);
+    
+    for (Conn *conn : fd2conn) {
+      if (!conn) {
+        continue;
       }
+      struct pollfd pfd = {};
+      pfd.fd = conn->fd;
+      pfd.events = (conn->state == STATE_REQ) ? POLLIN : POLLOUT;
+      pfd.events = pfd.events | POLLERR;
+      poll_args.push_back(pfd);
     }
-    close(connfd);
+    int rv = poll(poll_args.data(), (nfds_t)poll_args.size(), 1000);
+    if (rv < 0) {
+      die("poll");
+    }
   }
-
   return 0;
 }
