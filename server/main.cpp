@@ -40,14 +40,10 @@ struct Conn {
 };
 
 enum {
-    RES_OK = 0,
-    RES_ERR = 1,
-    RES_NX = 2,
+  RES_OK = 0,
+  RES_ERR = 1,
+  RES_NX = 2,
 };
-
-static bool cmd_is(const std::string &word, const char *cmd) {
-  return 0 == strcasecmp(word.c_str(), cmd);
-}
 
 // The data structure for the key space. This is just a placeholder
 // until we implement a hashtable in the next chapter.
