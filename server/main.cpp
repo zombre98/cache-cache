@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <errno.h>
+#include <map>
 #include <cstdint>
 #include <cstdio>
 #include <string.h>
@@ -19,25 +20,63 @@ const size_t MAX_MSG_SIZE = 4096;
 const size_t HEADER_MSG_SIZE = 4; // SIZE of an integer that store message size 
 
 enum {
-    STATE_REQ = 0,
-    STATE_RES = 1,
-    STATE_END = 2,  // mark the connection for deletion
+  STATE_REQ = 0,
+  STATE_RES = 1,
+  STATE_END = 2,  // mark the connection for deletion
 };
 
 struct Conn {
-    int fd = -1;
-    uint32_t state = 0;     // either STATE_REQ or STATE_RES
+  int fd = -1;
+  uint32_t state = 0;     // either STATE_REQ or STATE_RES
     
-    // buffer for reading
-    size_t rbuf_size = 0;
-    uint8_t rbuf[HEADER_MSG_SIZE + MAX_MSG_SIZE];
+  // buffer for reading
+  size_t rbuf_size = 0;
+  uint8_t rbuf[HEADER_MSG_SIZE + MAX_MSG_SIZE];
     
-    // buffer for writing
-    size_t wbuf_size = 0;
-    size_t wbuf_sent = 0;
-    uint8_t wbuf[HEADER_MSG_SIZE + MAX_MSG_SIZE];
+  // buffer for writing
+  size_t wbuf_size = 0;
+  size_t wbuf_sent = 0;
+  uint8_t wbuf[HEADER_MSG_SIZE + MAX_MSG_SIZE];
 };
 
+enum {
+    RES_OK = 0,
+    RES_ERR = 1,
+    RES_NX = 2,
+};
+
+static bool cmd_is(const std::string &word, const char *cmd) {
+  return 0 == strcasecmp(word.c_str(), cmd);
+}
+
+// The data structure for the key space. This is just a placeholder
+// until we implement a hashtable in the next chapter.
+static std::map<std::string, std::string> g_map;
+
+static uint32_t do_get(const std::vector<std::string> &cmd, uint8_t *res, uint32_t *reslen) {
+  if (!g_map.count(cmd[1])) {
+    return RES_NX;
+  }
+  std::string &val = g_map[cmd[1]];
+  assert(val.size() <= MAX_MSG_SIZE);
+  memcpy(res, val.data(), val.size());
+  *reslen = (uint32_t)val.size();
+  return RES_OK;
+}
+
+static uint32_t do_set(const std::vector<std::string> &cmd, uint8_t *res, uint32_t *reslen) {
+  (void)res;
+  (void)reslen;
+  g_map[cmd[1]] = cmd[2];
+  return RES_OK;
+}
+
+static uint32_t do_del(const std::vector<std::string> &cmd, uint8_t *res, uint32_t *reslen) {
+  (void)res;
+  (void)reslen;
+  g_map.erase(cmd[1]);
+  return RES_OK;
+}
 
 static int handle_request(int connfd) {
   char rbuf[HEADER_MSG_SIZE + MAX_MSG_SIZE + 1];
@@ -154,6 +193,59 @@ static void state_res(Conn *conn) {
     while (try_flush_buffer(conn)) {}
 }
 
+static int32_t parse_req(const uint8_t *data, size_t len, std::vector<std::string> &out) {
+    if (len < HEADER_MSG_SIZE) {
+        return -1;
+    }
+    uint32_t n = 0;
+    memcpy(&n, &data[0], HEADER_MSG_SIZE);
+    if (n > MAX_MSG_SIZE) {
+        return -1;
+    }
+
+    size_t pos = HEADER_MSG_SIZE;
+    while (n--) {
+        if (pos + HEADER_MSG_SIZE > len) {
+            return -1;
+        }
+        uint32_t sz = 0;
+        memcpy(&sz, &data[pos], HEADER_MSG_SIZE);
+        if (pos + HEADER_MSG_SIZE + sz > len) {
+            return -1;
+        }
+        out.push_back(std::string((char *)&data[pos + HEADER_MSG_SIZE], sz));
+        pos += HEADER_MSG_SIZE + sz;
+    }
+
+    if (pos != len) {
+        return -1;  // trailing garbage
+    }
+    return 0;
+}
+
+static int32_t do_request(const uint8_t *req, uint32_t reqlen, uint32_t *rescode, uint8_t *res, uint32_t *reslen) {
+  std::vector<std::string> cmd;
+
+  if (parse_req(req, reqlen, cmd)) {
+    msg("Bad request");
+    return -1;
+  }
+  if (cmd.size() == 2 && cmd_is(cmd[0], "get")) {
+    *rescode = do_get(cmd, res, reslen);
+  } else if (cmd.size() == 3 && cmd_is(cmd[0], "set")) {
+    *rescode = do_set(cmd, res, reslen);
+  } else if (cmd.size() == 2 && cmd_is(cmd[0], "del")) {
+    *rescode = do_del(cmd, res, reslen);
+  } else {
+    // cmd is not recognized
+    *rescode = RES_ERR;
+    const char *msg = "Unknown cmd";
+    strcpy((char *)res, msg);
+    *reslen = strlen(msg);
+  }
+  return 0;
+}
+
 static bool try_one_request(Conn *conn) {
   // try to parse a request from the buffer
   if (conn->rbuf_size < HEADER_MSG_SIZE) {
@@ -171,13 +263,21 @@ static bool try_one_request(Conn *conn) {
     // not enough data in the buffer. Will retry in the next iteration
     return false;
   }  
-  printf("client says: %.*s\n", len, &conn->rbuf[HEADER_MSG_SIZE]);
 
-  // generating echoing response
-  memcpy(&conn->wbuf[0], &len, HEADER_MSG_SIZE);
-  memcpy(&conn->wbuf[HEADER_MSG_SIZE], &conn->rbuf[HEADER_MSG_SIZE], len);
-  conn->wbuf_size = HEADER_MSG_SIZE + len;
+  uint32_t rescode = 0;
+  uint32_t wlen = 0;
+  uint32_t err = do_request(
+      &conn->rbuf[HEADER_MSG_SIZE], len,
+      &rescode, &conn->wbuf[2 * HEADER_MSG_SIZE], &wlen);
+  if (err) {
+    conn->state = STATE_END;
+    return false;
+  }
 
+  wlen += HEADER_MSG_SIZE;
+  memcpy(&conn->wbuf[0], &wlen, HEADER_MSG_SIZE);
+  memcpy(&conn->wbuf[HEADER_MSG_SIZE], &rescode, HEADER_MSG_SIZE);
+  conn->wbuf_size = HEADER_MSG_SIZE + wlen;
   // remove the request from the buffer.
   // note: frequent memmove is inefficient.
   // note: need better handling for production code.
