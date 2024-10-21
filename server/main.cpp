@@ -15,6 +15,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/ip.h>
+#include <iostream>
 #include "../lib/lib.hpp"
 #include "../lib/hashtable.h"
 
@@ -81,6 +82,7 @@ static uint32_t do_get(std::vector<std::string> &cmd, uint8_t *res, uint32_t *re
   Entry key;
   key.key.swap(cmd[1]);
   key.node.hcode = str_hash((uint8_t *)key.key.data(), key.key.size());
+  std::cout << "Set: { key: [" << key.key << "], hcode: [" << key.node.hcode << "]\n";
 
   HNode *node = hm_lookup(&g_data.db, &key.node, &entry_eq);
   if (!node) {
@@ -109,6 +111,7 @@ static uint32_t do_set(std::vector<std::string> &cmd, uint8_t *res, uint32_t *re
     entry->key.swap(key.key);
     entry->node.hcode = str_hash((uint8_t *)key.key.data(), key.key.size());
     entry->val.swap(cmd[2]);
+    std::cout << "Set: { key: [" << entry->key << "], hcode: [" << entry->node.hcode << "] value: [" << entry->val << "]\n";
     hm_insert(&g_data.db, &entry->node);
   }
   return RES_OK;
