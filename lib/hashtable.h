@@ -1,12 +1,12 @@
 #pragma once 
 
-#include <cstddef>
-#include <string>
-#include <sys/types.h>
+#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 struct HNode {
   HNode *next = NULL;
-  uint hcode = 0; // Hash value used for resizing anc checking
+  uint64_t hcode = 0; // Hash value used for resizing anc checking
 };
 
 struct HTab {
@@ -21,14 +21,8 @@ struct HMap {
   size_t resizing_pos = 0;
 };
 
-struct Entry {
-  struct HNode node;
-  std::string key;
-  std::string value;
-};
-
-void hm_insert(HMap *, HNode *);
-HNode *hm_lookup(HMap *, HNode *, bool (*eq)(HNode *, HNode *));
+HNode *hm_lookup(HMap *hmap, HNode *key, bool (*eq)(HNode *, HNode *));
+void hm_insert(HMap *hmap, HNode *node);
 HNode *hm_pop(HMap *hmap, HNode *key, bool (*eq)(HNode *, HNode *));
 size_t hm_size(HMap *hmap);
 void hm_destroy(HMap *hmap);

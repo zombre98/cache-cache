@@ -1,7 +1,7 @@
 #include <cstddef>
 #include <assert.h>
 #include <cstdlib>
-#include "hashtable.hpp"
+#include "hashtable.h"
 
 // Intrusive Data Structures
 
