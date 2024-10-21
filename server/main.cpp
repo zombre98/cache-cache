@@ -15,6 +15,15 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
 #include "../lib/lib.hpp"
+#include "../lib/hashtable.hpp"
+
+#define container_of(ptr, type, member) ({  \
+    const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
+    (type *)( (char *)__mptr - offsetof(type, member) );})
+
+static struct {
+  HMap db;
+} g_data;
 
 const size_t MAX_MSG_SIZE = 4096;
 const size_t HEADER_MSG_SIZE = 4; // SIZE of an integer that store message size 
