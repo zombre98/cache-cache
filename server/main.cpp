@@ -73,7 +73,7 @@ static bool entry_eq(HNode *lhs, HNode *rhs) {
 static uint64_t str_hash(const uint8_t *data, size_t len) {
   uint32_t h = 0x811C9DC5;
   for (size_t i = 0; i < len; i++) {
-    h = (h+ data[i]) * 0x01000193;
+    h = (h + data[i]) * 0x01000193;
   }
   return h;
 }
@@ -82,7 +82,7 @@ static uint32_t do_get(std::vector<std::string> &cmd, uint8_t *res, uint32_t *re
   Entry key;
   key.key.swap(cmd[1]);
   key.node.hcode = str_hash((uint8_t *)key.key.data(), key.key.size());
-  std::cout << "Set: { key: [" << key.key << "], hcode: [" << key.node.hcode << "]\n";
+  std::cout << "Get: { key: [" << key.key << "], hcode: [" << key.node.hcode << "]\n";
 
   HNode *node = hm_lookup(&g_data.db, &key.node, &entry_eq);
   if (!node) {
@@ -102,6 +102,7 @@ static uint32_t do_set(std::vector<std::string> &cmd, uint8_t *res, uint32_t *re
   Entry key;
   key.key.swap(cmd[1]);
   key.node.hcode = str_hash((uint8_t *)key.key.data(), key.key.size());
+  std::cout << "Set lookup: { key: [" << key.key << "], hcode: [" << key.node.hcode << "]\n";
 
   HNode *node = hm_lookup(&g_data.db, &key.node, &entry_eq);
   if (node) {
@@ -109,7 +110,7 @@ static uint32_t do_set(std::vector<std::string> &cmd, uint8_t *res, uint32_t *re
   } else {
     Entry *entry = new Entry();
     entry->key.swap(key.key);
-    entry->node.hcode = str_hash((uint8_t *)key.key.data(), key.key.size());
+    entry->node.hcode = key.node.hcode;
     entry->val.swap(cmd[2]);
     std::cout << "Set: { key: [" << entry->key << "], hcode: [" << entry->node.hcode << "] value: [" << entry->val << "]\n";
     hm_insert(&g_data.db, &entry->node);
