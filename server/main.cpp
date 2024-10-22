@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <assert.h>
 #include <cstring>
+#include <ostream>
 #include <string>
 #include <vector>
 #include <fcntl.h>
@@ -153,21 +154,21 @@ static void do_get(std::vector<std::string> &cmd, std::string &out) {
   Entry key;
   key.key.swap(cmd[1]);
   key.node.hcode = str_hash((uint8_t *)key.key.data(), key.key.size());
-  std::cout << "Get: { key: [" << key.key << "], hcode: [" << key.node.hcode << "]\n";
-
+  
   HNode *node = hm_lookup(&g_data.db, &key.node, &entry_eq);
   if (!node) {
     return out_nil(out);
   }
   const std::string &val = container_of(node, Entry, node)->val;
+  std::cout << "Get: { key: [" << key.key << "], hcode: [" << key.node.hcode << "], val: [" << val << "] }" << std::endl;
   out_str(out, val);
 }
 
-static uint32_t do_set(std::vector<std::string> &cmd, std::string &out) {
+static void do_set(std::vector<std::string> &cmd, std::string &out) {
   Entry key;
   key.key.swap(cmd[1]);
   key.node.hcode = str_hash((uint8_t *)key.key.data(), key.key.size());
-  std::cout << "Set lookup: { key: [" << key.key << "], hcode: [" << key.node.hcode << "]\n";
+  std::cout << "Set lookup: { key: [" << key.key << "], hcode: [" << key.node.hcode << "] }" << std::endl;
 
   HNode *node = hm_lookup(&g_data.db, &key.node, &entry_eq);
   if (node) {
@@ -177,7 +178,7 @@ static uint32_t do_set(std::vector<std::string> &cmd, std::string &out) {
     entry->key.swap(key.key);
     entry->node.hcode = key.node.hcode;
     entry->val.swap(cmd[2]);
-    std::cout << "Set: { key: [" << entry->key << "], hcode: [" << entry->node.hcode << "] value: [" << entry->val << "]\n";
+    std::cout << "Set: { key: [" << entry->key << "], hcode: [" << entry->node.hcode << "] value: [" << entry->val << "] }" << std::endl;
     hm_insert(&g_data.db, &entry->node);
   }
   out_nil(out);
@@ -194,39 +195,6 @@ static void do_del(std::vector<std::string> &cmd, std::string &out) {
   }
   // Indicate if deletion took place
   out_int(out, node ? 1 : 0);
-}
-
-static int handle_request(int connfd) {
-  char rbuf[HEADER_MSG_SIZE + MAX_MSG_SIZE + 1];
-  int32_t err = read_n(connfd, rbuf, HEADER_MSG_SIZE);
-  if (err) {
-    msg("read message header error");
-    return err;
-  }
-
-  uint32_t len = 0;
-  memcpy(&len, rbuf, HEADER_MSG_SIZE);  // assume little endian
-  if (len > MAX_MSG_SIZE) {
-    msg("too long");
-    return -1;
-  }
-
-  err = read_n(connfd, &rbuf[HEADER_MSG_SIZE], len);
-  if (err) {
-    msg("read message body error");
-    return err;
-  }
-
-  rbuf[HEADER_MSG_SIZE + len] = '\0';
-  printf("client says: [%d][%s]\n", len, &rbuf[HEADER_MSG_SIZE]);
-
-  const char reply[] = "world";
-  char wbuf[HEADER_MSG_SIZE + sizeof(reply)];
-  len = (uint32_t)strlen(reply);
-  memcpy(wbuf, &len, HEADER_MSG_SIZE);
-  memcpy(&wbuf[4], reply, len);
-
-  return write_n(connfd, wbuf, HEADER_MSG_SIZE + len);
 }
 
 // Set the file descriptor to non blocking mode
