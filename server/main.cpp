@@ -1,5 +1,7 @@
+#include <cmath>
 #include <cstddef>
 #include <assert.h>
+#include <cstdlib>
 #include <cstring>
 #include <ostream>
 #include <string>
@@ -20,28 +22,28 @@
 #include <iostream>
 #include "../lib/lib.hpp"
 #include "../lib/hashtable.h"
-
-#define container_of(ptr, type, member) ({                  \
-    const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
-    (type *)( (char *)__mptr - offsetof(type, member) );})
+#include "../lib/common.h"
+#include "../lib/zset.h"
 
 enum {
   ERR_UNKNOWN = 1,
   ERR_2BIG = 2,
+  ERR_TYPE = 3,
+  ERR_ARG = 4,
 };
 
 enum {
-  SER_NIL = 0,
-  SER_ERR = 1,
-  SER_STR = 2,
-  SER_INT = 3,
-  SER_ARR = 4,
+  T_STR = 0,
+  T_ZSET = 1,
 };
 
+// Make val an union to reduce allocations
 struct Entry {
   struct HNode node;
   std::string key;
+  uint32_t type = 0;
   std::string val;
+  ZSet *zset = NULL;
 };
 
 static struct {
@@ -84,15 +86,6 @@ static bool entry_eq(HNode *lhs, HNode *rhs) {
   return le->key == re->key;
 }
 
-// FNV-1a hash algorithm
-static uint64_t str_hash(const uint8_t *data, size_t len) {
-  uint32_t h = 0x811C9DC5;
-  for (size_t i = 0; i < len; i++) {
-    h = (h + data[i]) * 0x01000193;
-  }
-  return h;
-}
-
 static void out_nil(std::string &out) {
   out.push_back(SER_NIL);
 }
@@ -109,6 +102,11 @@ static void out_int(std::string &out, int64_t val) {
   out.append((char *)&val, 8);
 }
 
+void out_dbl(std::string &out, double val) {
+  out.push_back(SER_DBL);
+  out.append((char *)&val, 8);
+}
+
 static void out_err(std::string &out, int32_t code, const std::string &msg) {
   out.push_back(SER_ERR);
   out.append((char *)&code, 4);
@@ -120,6 +118,18 @@ static void out_err(std::string &out, int32_t code, const std::string &msg) {
 static void out_arr(std::string &out, uint32_t n) {
   out.push_back(SER_ARR);
   out.append((char *)&n, 4);
+}
+
+static void *begin_arr(std::string &out) {
+  out.push_back(SER_ARR);
+  out.append("\0\0\0\0", 4);
+  return (void *)(out.size() - 4);
+}
+
+static void end_arr(std::string &out, void *ctx, uint32_t n) {
+  size_t pos = (size_t)ctx;
+  assert(out[pos - 1] == SER_ARR);
+  memcpy(&out[pos], &n, 4);
 }
 
 static void h_scan(HTab *tab, void (*f)(HNode *, void *), void *arg) {
@@ -184,6 +194,14 @@ static void do_set(std::vector<std::string> &cmd, std::string &out) {
   out_nil(out);
 }
 
+static void entry_del(Entry *ent) {
+  if (ent->type == T_ZSET) {
+    zset_dispose(ent->zset);
+    delete ent->zset;
+  }
+  delete ent;
+}
+
 static void do_del(std::vector<std::string> &cmd, std::string &out) {
   Entry key;
   key.key.swap(cmd[1]);
@@ -196,6 +214,51 @@ static void do_del(std::vector<std::string> &cmd, std::string &out) {
   // Indicate if deletion took place
   out_int(out, node ? 1 : 0);
 }
+
+static bool str2dbl(const std::string &s, double &out) {
+  char *endp = NULL;
+  out = strtod(s.c_str(), &endp);
+  return endp == s.c_str() + s.size() && !isnan(out);
+}
+
+static bool str2int(const std::string &s, int64_t &out) {
+  char *endp = NULL;
+  out = strtoll(s.c_str(), &endp, 10);
+  return endp == s.c_str() + s.size();
+}
+
+static void do_zadd(std::vector<std::string> &cmd, std::string &out) {
+  double score = 0;
+  if (!str2dbl(cmd[2], score)) {
+    return out_err(out, ERR_ARG, "expect fp number");
+  }
+
+  Entry key;
+  key.key.swap(cmd[1]);
+  key.node.hcode = str_hash((uint8_t *)key.key.data(), key.key.size());
+  HNode *hnode = hm_lookup(&g_data.db, &key.node, &entry_eq);
+
+  Entry *ent = NULL;
+  if (!hnode) {
+    ent = new Entry();
+    ent->key.swap(key.key);
+    ent->node.hcode = key.node.hcode;
+    ent->type = T_ZSET;
+    ent->zset = new ZSet();
+    hm_insert(&g_data.db, &ent->node);
+  } else {
+    ent = container_of(hnode, Entry, node);
+    if (ent->type != T_ZSET) {
+      return out_err(out, ERR_TYPE, "expect zset");
+    }
+  }
+
+  const std::string &name = cmd[3];
+  bool added = zset_add(ent->zset, name.data(), name.size(), score);
+  return out_int(out, (int64_t)added);
+}
+
+
 
 // Set the file descriptor to non blocking mode
 static void non_blocking_fd(int fd) {
@@ -318,6 +381,14 @@ static void do_request(std::vector<std::string> &cmd, std::string &out) {
     do_set(cmd, out);
   } else if (cmd.size() == 2 && cmd_is(cmd[0], "del")) {
     do_del(cmd, out);
+  } else if (cmd.size() == 4 && cmd_is(cmd[0], "zadd")) {
+    do_zadd(cmd, out);
+  } else if (cmd.size() == 3 && cmd_is(cmd[0], "zrem")) {
+    do_zrem(cmd, out);
+  } else if (cmd.size() == 3 && cmd_is(cmd[0], "zscore")) {
+    do_zscore(cmd, out);
+  } else if (cmd.size() == 6 && cmd_is(cmd[0], "zquery")) {
+    do_zquery(cmd, out);
   } else {
     out_err(out, ERR_UNKNOWN, "Unknown cmd");
   }
