@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 
 CASES = r'''
+$ ./bin/client set key value
+(nil)
+$ ./bin/client get key
+(str) value
+$ ./bin/client keys
+(arr) len=1
+(str) key
+(arr) end
 $ ./bin/client zscore asdf n1
 (nil)
 $ ./bin/client zquery xxx 1 asdf 1 10
