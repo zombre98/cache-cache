@@ -90,6 +90,13 @@ static void out_nil(std::string &out) {
   out.push_back(SER_NIL);
 }
 
+static void out_str(std::string &out, const char *s, size_t size) {
+  out.push_back(SER_STR);
+  uint32_t len = (uint32_t)size;
+  out.append((char *)&len, 4);
+  out.append(s, len);
+}
+
 static void out_str(std::string &out, const std::string &val) {
   out.push_back(SER_STR);
   uint32_t len = (uint32_t)val.size();
@@ -258,6 +265,89 @@ static void do_zadd(std::vector<std::string> &cmd, std::string &out) {
   return out_int(out, (int64_t)added);
 }
 
+static bool expect_zset(std::string &out, std::string &s, Entry **ent) {
+  Entry key;
+  key.key.swap(s);
+  key.node.hcode = str_hash((uint8_t *)key.key.data(), key.key.size());
+  HNode *hnode = hm_lookup(&g_data.db, &key.node, &entry_eq);
+  if (!hnode) {
+    out_nil(out);
+    return false;
+  }
+
+  *ent = container_of(hnode, Entry, node);
+  if ((*ent)->type != T_ZSET) {
+    out_err(out, ERR_TYPE, "expect zset");
+    return false;
+  }
+  return true;
+}
+
+static void do_zrem(std::vector<std::string> &cmd, std::string &out) {
+  Entry *ent = NULL;
+  if (!expect_zset(out, cmd[1], &ent)) {
+    return;
+  }
+
+  const std::string &name = cmd[2];
+  ZNode *znode = zset_pop(ent->zset, name.data(), name.size());
+  if (znode) {
+    znode_del(znode);
+  }
+  return out_int(out, znode ? 1 : 0);
+}
+
+static void do_zscore(std::vector<std::string> &cmd, std::string &out) {
+  Entry *ent = NULL;
+  if (!expect_zset(out, cmd[1], &ent)) {
+    return;
+  }
+
+  const std::string &name = cmd[2];
+  ZNode *znode = zset_lookup(ent->zset, name.data(), name.size());
+  return znode ? out_dbl(out, znode->score) : out_nil(out);
+}
+
+static void do_zquery(std::vector<std::string> &cmd, std::string &out) {
+  double score = 0;
+  if (!str2dbl(cmd[2], score)) {
+    return out_err(out, ERR_ARG, "expect fp number");
+  }
+
+  const std::string &name = cmd[3];
+  int64_t offset = 0;
+  int64_t limit = 0;
+  if (!str2int(cmd[4], offset)) {
+    return out_err(out, ERR_ARG, "expect int");
+  }
+  if (!str2int(cmd[5], limit)) {
+    return out_err(cmd[5], ERR_ARG, "expect int");
+  }
+
+  Entry *ent = NULL;
+  if (!expect_zset(out, cmd[1], &ent)) {
+    if (out[0] == SER_NIL) {
+      out.clear();
+      out_arr(out, 0);
+    }
+    return;
+  }
+  if (limit <= 0) {
+    return out_arr(out, 0);
+  }
+  ZNode *znode = zset_query(ent->zset, score, name.data(), name.size());
+  znode = znode_offset(znode, offset);
+
+  void *arr = begin_arr(out);
+  uint32_t n = 0;
+  while (znode && (int64_t)n < limit) {
+    out_str(out, znode->name, znode->len);
+    out_dbl(out, znode->score);
+    znode = znode_offset(znode, +1);
+    n += 2;
+  }
+  end_arr(out, arr, n);
+}
 
 
 // Set the file descriptor to non blocking mode

@@ -12,17 +12,10 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
 #include "../lib/lib.hpp"
+#include "../lib/common.h"
 
 const size_t MAX_MSG_SIZE = 4096;
 const size_t HEADER_MSG_SIZE = 4;
-
-enum {
-  SER_NIL = 0,
-  SER_ERR = 1,
-  SER_STR = 2,
-  SER_INT = 3,
-  SER_ARR = 4,
-};
 
 static int32_t send_req(int fd, const std::vector<std::string> &cmd) {
     uint32_t len = 4;
@@ -85,6 +78,16 @@ static int32_t on_response(const uint8_t *data, size_t size) {
     }
     printf("(str) %.*s\n", len, &data[5]);
     return 5 + len;
+  }
+  if (data[0] == SER_DBL) {
+    if (size < 9) {
+      msg("bad response");
+      return -1;
+    }
+    double val = 0;
+    memcpy(&val, &data[1], 8);
+    printf("(dbl) %g\n", val);
+    return 9;
   }
   if (data[0] == SER_INT) {
     if (size < 9) {
