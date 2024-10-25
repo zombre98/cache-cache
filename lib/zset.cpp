@@ -2,7 +2,6 @@
 #include "common.h"
 #include "hashtable.h"
 #include "avl.h"
-#include <cinttypes>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>

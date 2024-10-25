@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -24,6 +25,7 @@
 #include "../lib/hashtable.h"
 #include "../lib/common.h"
 #include "../lib/zset.h"
+#include "../lib/list.h"
 
 enum {
   ERR_UNKNOWN = 1,
@@ -37,6 +39,10 @@ enum {
   T_ZSET = 1,
 };
 
+const size_t MAX_MSG_SIZE = 4096;
+const size_t HEADER_MSG_SIZE = 4; // SIZE of an integer that store message size 
+const uint64_t IDLE_TIMEOUT_MS = 5 * 1000;
+
 // Make val an union to reduce allocations
 struct Entry {
   struct HNode node;
@@ -44,19 +50,6 @@ struct Entry {
   uint32_t type = 0;
   std::string val;
   ZSet *zset = NULL;
-};
-
-static struct {
-  HMap db;
-} g_data;
-
-const size_t MAX_MSG_SIZE = 4096;
-const size_t HEADER_MSG_SIZE = 4; // SIZE of an integer that store message size 
-
-enum {
-  STATE_REQ = 0,
-  STATE_RES = 1,
-  STATE_END = 2,  // mark the connection for deletion
 };
 
 struct Conn {
@@ -71,6 +64,22 @@ struct Conn {
   size_t wbuf_size = 0;
   size_t wbuf_sent = 0;
   uint8_t wbuf[HEADER_MSG_SIZE + MAX_MSG_SIZE];
+
+  uint64_t idle_start = 0;
+  DList idle_list;
+};
+
+
+static struct {
+  HMap db;
+  std::vector<Conn *> fd2conn;
+  DList idle_list;
+} g_data;
+
+enum {
+  STATE_REQ = 0,
+  STATE_RES = 1,
+  STATE_END = 2,  // mark the connection for deletion
 };
 
 enum {
@@ -88,6 +97,27 @@ static bool entry_eq(HNode *lhs, HNode *rhs) {
 
 static void out_nil(std::string &out) {
   out.push_back(SER_NIL);
+}
+
+static uint64_t get_monotonic_usec() {
+  timespec tv = {0, 0};
+  clock_gettime(CLOCK_MONOTONIC, &tv);
+  return uint64_t(tv.tv_sec) * 1000000 + tv.tv_nsec / 1000;
+}
+
+static uint32_t next_timer_ms() {
+  if (dlist_empty(&g_data.idle_list)) {
+    return 10000; // No timer, the value doesn't matter
+  }
+
+  uint64_t now_us = get_monotonic_usec();
+  Conn *next = container_of(g_data.idle_list.next, Conn, idle_list);
+  uint64_t next_us = next->idle_start + IDLE_TIMEOUT_MS * 1000;
+  if (next_us <= now_us) {
+    return 0;
+  }
+
+  return (uint32_t)((next_us - now_us) / 1000);
 }
 
 static void out_str(std::string &out, const char *s, size_t size) {
@@ -375,7 +405,14 @@ static void conn_put(std::vector<Conn *> &fd2conn, struct Conn *conn) {
   fd2conn[conn->fd] = conn;
 }
 
-int32_t accept_new_connection(std::vector<Conn *> &fd2conn, int fd) {
+static void conn_done(Conn *conn) {
+  g_data.fd2conn[conn->fd] = NULL;
+  close(conn->fd);
+  dlist_detach(&conn->idle_list);
+  free(conn);
+}
+
+int32_t accept_new_connection(int fd) {
   struct sockaddr_in client_addr = {};
   socklen_t socklen = sizeof(client_addr);
   int connfd = accept(fd, (struct sockaddr *)&client_addr, &socklen);
@@ -396,7 +433,9 @@ int32_t accept_new_connection(std::vector<Conn *> &fd2conn, int fd) {
   conn->rbuf_size = 0;
   conn->wbuf_size = 0;
   conn->wbuf_sent = 0;
-  conn_put(fd2conn, conn);
+  conn->idle_start = get_monotonic_usec();
+  dlist_insert_before(&g_data.idle_list, &conn->idle_list);
+  conn_put(g_data.fd2conn, conn);
   return 0;
 }
 
@@ -578,17 +617,40 @@ static void state_req(Conn *conn) {
   while (try_fill_buffer(conn)) {}
 }
 
-static void connection_io(Conn *conn) {
-    if (conn->state == STATE_REQ) {
-        state_req(conn);
-    } else if (conn->state == STATE_RES) {
-        state_res(conn);
-    } else {
-        assert(0);  // not expected
+static void process_timers() {
+  uint64_t now_us = get_monotonic_usec();
+  while (!dlist_empty(&g_data.idle_list)) {
+    Conn *next = container_of(g_data.idle_list.next, Conn, idle_list);
+    uint64_t next_us = next->idle_start + IDLE_TIMEOUT_MS * 1000;
+    if (next_us >= now_us + 1000) {
+      // not ready the extrat 1000us is for the ms resolution of poll()
+      break;
     }
+    printf("removing idle connection %d\n", next->fd);
+    conn_done(next);
+  }
+}
+
+/*
+ * Wake up by poll, update the idel timer bu moving conn to the end of the list.
+ */
+static void connection_io(Conn *conn) {
+  conn->idle_start = get_monotonic_usec();
+  dlist_detach(&conn->idle_list);
+  dlist_insert_before(&g_data.idle_list, &conn->idle_list);
+
+  if (conn->state == STATE_REQ) {
+    state_req(conn);
+  } else if (conn->state == STATE_RES) {
+    state_res(conn);
+  } else {
+    assert(0);  // not expected
+  }
 }
 
 int main(int argc, char *argv[]) {
+  dlist_init(&g_data.idle_list);
+
   int fd = socket(AF_INET, SOCK_STREAM, 0);
   if (fd < 0) {
     die("socket()");
@@ -613,9 +675,6 @@ int main(int argc, char *argv[]) {
     die("listen()");
   }
 
-  // Is it better to use a map or unordered_map ?
-  std::vector<Conn *> fd2conn;
-
   non_blocking_fd(fd);
 
   std::vector<struct pollfd> poll_args;
@@ -625,7 +684,7 @@ int main(int argc, char *argv[]) {
     struct pollfd pfd = {fd, POLLIN, 0};
     poll_args.push_back(pfd);
     
-    for (Conn *conn : fd2conn) {
+    for (Conn *conn : g_data.fd2conn) {
       if (!conn) {
         continue;
       }
@@ -636,24 +695,27 @@ int main(int argc, char *argv[]) {
       poll_args.push_back(pfd);
     }
 
-    int rv = poll(poll_args.data(), (nfds_t)poll_args.size(), 1000);
+    int timeout_ms = (int)next_timer_ms();
+    int rv = poll(poll_args.data(), (nfds_t)poll_args.size(), timeout_ms);
     if (rv < 0) {
       die("poll");
     }
 
     for (size_t i = 1; i < poll_args.size(); ++i) {
       if (poll_args[i].revents) {
-        Conn *conn = fd2conn[poll_args[i].fd];
+        Conn *conn = g_data.fd2conn[poll_args[i].fd];
         connection_io(conn);
         if (conn->state == STATE_END) {
-          fd2conn[conn->fd] = NULL;
-          close(conn->fd);
-          free(conn);
+          // Client closed normally or something bad happened.
+          conn_done(conn);
         }
       }
     }
+    
+    process_timers();
+
     if (poll_args[0].revents) {
-      accept_new_connection(fd2conn, fd);
+      accept_new_connection(fd);
     }
   }
   return 0;
