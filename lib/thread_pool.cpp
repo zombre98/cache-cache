@@ -4,6 +4,9 @@
 #include <pthread.h>
 
 
+/*
+ * The consumer must check for the condition again after waking up, if the condition (a non-empty queue) is not satisfied, go back to sleep.
+ */
 static void *worker(void *arg) {
  ThreadPool *tp = (ThreadPool *)arg;
  while (true) {
@@ -36,4 +39,15 @@ void thread_pool_init(ThreadPool *tp, size_t num_threads) {
     int v = pthread_create(&tp->threads[i], NULL, &worker, tp);
     assert(v == 0);
   }
+}
+
+void thread_pool_queue(ThreadPool *tp, void (*f)(void *), void *arg) {
+  Work w;
+  w.f = f;
+  w.arg = arg;
+
+  pthread_mutex_lock(&tp->mu);
+  tp->queue.push_back(w);
+  pthread_cond_signal(&tp->not_empty);
+  pthread_mutex_unlock(&tp->mu);
 }
