@@ -27,6 +27,7 @@
 #include "../lib/heap.h"
 #include "../lib/zset.h"
 #include "../lib/list.h"
+#include "../lib/thread_pool.h"
 
 enum {
   ERR_UNKNOWN = 1,
@@ -43,6 +44,7 @@ enum {
 const size_t MAX_MSG_SIZE = 4096;
 const size_t HEADER_MSG_SIZE = 4; // SIZE of an integer that store message size 
 const uint64_t IDLE_TIMEOUT_MS = 5 * 1000;
+const size_t CONTAINER_SIZE = 10000;
 
 // Make val an union to reduce allocations
 struct Entry {
@@ -78,6 +80,7 @@ static struct {
   std::vector<Conn *> fd2conn;
   DList idle_list;
   std::vector<HeapItem> heap;
+  ThreadPool tp;
 } g_data;
 
 enum {
@@ -318,13 +321,32 @@ static void do_set(std::vector<std::string> &cmd, std::string &out) {
   out_nil(out);
 }
 
-static void entry_del(Entry *ent) {
+static void entry_destroy(Entry *ent) {
   if (ent->type == T_ZSET) {
     zset_dispose(ent->zset);
     delete ent->zset;
   }
   entry_set_ttl(ent, -1);
   delete ent;
+}
+
+static void entry_del_async(void *arg) {
+  entry_destroy((Entry *)arg);
+}
+
+static void entry_del(Entry *ent) {
+  entry_set_ttl(ent, -1);
+
+  bool too_big = false;
+  if (ent->type == T_ZSET) {
+    too_big = hm_size(&ent->zset->hmap) > CONTAINER_SIZE;
+  }
+  
+  if (too_big) {
+    thread_pool_queue(&g_data.tp, &entry_del_async, ent);
+  } else {
+    entry_destroy(ent);
+  }
 }
 
 static void do_del(std::vector<std::string> &cmd, std::string &out) {
@@ -746,6 +768,7 @@ static void connection_io(Conn *conn) {
 
 int main(int argc, char *argv[]) {
   dlist_init(&g_data.idle_list);
+  thread_pool_init(&g_data.tp, 4);
 
   int fd = socket(AF_INET, SOCK_STREAM, 0);
   if (fd < 0) {
