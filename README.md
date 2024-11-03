@@ -4,6 +4,8 @@
 
 # Cache-Cache
 
+![test](https://github.com/zombre98/cache-cache/actions/workflows/tests.yml/badge.svg)
+
 Own implementation of redis for learning purposes (I will try to work on this)
 
 </div>
