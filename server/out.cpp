@@ -39,6 +39,10 @@ void out_arr(std::string &out, uint32_t n) {
   out.append((char *)&n, 4);
 }
 
+void out_nil(std::string &out) {
+  out.push_back(SER_NIL);
+}
+
 void *begin_arr(std::string &out) {
   out.push_back(SER_ARR);
   out.append("\0\0\0\0", 4);

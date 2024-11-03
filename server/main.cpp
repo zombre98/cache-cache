@@ -28,6 +28,7 @@
 #include "../lib/thread_pool.h"
 #include "out.h"
 #include "server.h"
+#include "timer.h"
 
 
 static struct {
@@ -37,12 +38,6 @@ static struct {
   std::vector<HeapItem> heap;
   ThreadPool tp;
 } g_data;
-
-static uint64_t get_monotonic_usec() {
-  timespec tv = {0, 0};
-  clock_gettime(CLOCK_MONOTONIC, &tv);
-  return uint64_t(tv.tv_sec) * 1000000 + tv.tv_nsec / 1000;
-}
 
 static void entry_set_ttl(Entry *ent, int64_t ttl_ms) {
   if (ttl_ms < 0 && ent->heap_idx != -1) {
@@ -84,10 +79,6 @@ static bool entry_eq(HNode *lhs, HNode *rhs) {
   struct Entry *re = container_of(rhs, struct Entry, node);
 
   return le->key == re->key;
-}
-
-static void out_nil(std::string &out) {
-  out.push_back(SER_NIL);
 }
 
 static uint32_t next_timer_ms() {

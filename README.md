@@ -4,7 +4,7 @@
 
 # Cache-Cache
 
-Own implementation of redis for learning purposes
+Own implementation of redis for learning purposes (I will try to work on this)
 
 </div>
 
