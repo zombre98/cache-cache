@@ -74,5 +74,10 @@ clean:
 
 distclean: clean
 
+check:
+	@./bin/server &
+	@python3 test.py
+
+
 .PHONY: all clean distclean server client
 
