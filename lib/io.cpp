@@ -1,6 +1,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <assert.h>
+#include <cstdint>
 
 int32_t read_n(int fd, char *buf, size_t n) {
   while (n > 0) {

@@ -1,6 +1,7 @@
 #include "../lib/common.h"
 #include <assert.h>
 #include <string>
+#include <cstring>
 
 void out_str(std::string &out, const char *s, size_t size) {
   out.push_back(SER_STR);
