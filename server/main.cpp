@@ -65,7 +65,7 @@ static void entry_set_ttl(Entry *ent, int64_t ttl_ms) {
 static bool str2dbl(const std::string &s, double &out) {
   char *endp = NULL;
   out = strtod(s.c_str(), &endp);
-  return endp == s.c_str() + s.size() && !isnan(out);
+  return endp == s.c_str() + s.size() && !std::isnan(out);
 }
 
 static bool str2int(const std::string &s, int64_t &out) {
